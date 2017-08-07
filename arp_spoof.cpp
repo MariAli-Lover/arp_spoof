@@ -109,7 +109,7 @@ void Session::relay_packet()
 
         eth_hdr = (struct ethhdr*)packet;
 
-        if (ntohs(eth_hdr->h_proto) == ETHERTYPE_IP && !memcmp(eth_hdr->h_dest, attacker_mac, 6) && !memcmp(eth_hdr->h_source, sender_mac, 5)) {
+        if (ntohs(eth_hdr->h_proto) == ETHERTYPE_IP && !memcmp(eth_hdr->h_dest, attacker_mac, 6) && !memcmp(eth_hdr->h_source, sender_mac, 6)) {
             struct ip* ip_hdr;
             ip_hdr = (struct ip*)(packet + 14);
 
@@ -189,6 +189,8 @@ int main(int argc, char* argv[])
     char attacker_ip[4], attacker_mac[6];
     list<Session> session;
     list<Session>::iterator sessioni;
+    list<thread> lot;
+    list<thread>::iterator loti;
 
     if (argc < 4) {
         printf("Usage: %s <interface> <sender ip> <target ip> [<sender ip> <target ip>]", argv[0]);
@@ -233,20 +235,33 @@ int main(int argc, char* argv[])
     }
 
     for(sessioni = session.begin(); sessioni != session.end(); ++sessioni) {
-        thread t(&Session::arp_storm, *sessioni);
 
-        t.join();
+        lot.push_back(thread(&Session::arp_storm, *sessioni));
+        // thread t(&Session::arp_storm, *sessioni);
+
+        // lot.push_back(t);
     }
+
+    for(loti = lot.begin(); loti != lot.end(); ++loti)
+        (*loti).join();
+
+    lot.clear();
 
     for(sessioni = session.begin(); sessioni != session.end(); ++sessioni) {
-        thread t1(&Session::relay_packet, *sessioni);
-        thread t2(&Session::reply_arp_request, *sessioni);
-        thread t3(&Session::keep_arp_request, *sessioni);
+        lot.push_back(thread(&Session::relay_packet, *sessioni));
+        lot.push_back(thread(&Session::reply_arp_request, *sessioni));
+        lot.push_back(thread(&Session::keep_arp_request, *sessioni));
+        // thread t1(&Session::relay_packet, *sessioni);
+        // thread t2(&Session::reply_arp_request, *sessioni);
+        // thread t3(&Session::keep_arp_request, *sessioni);
 
-        t1.join();
-        t2.join();
-        t3.join();
+        // lot.push_back(t1);
+        // lot.push_back(t2);
+        // lot.push_back(t3);
     }
+
+    for(loti = lot.begin(); loti != lot.end(); ++loti)
+        (*loti).join();
 }
 
 void get_attacker_info(char* dev, char* mac, char* ip)
